@@ -6,10 +6,6 @@ const { searchMomo } = require('./services/momo');
 const { searchYahoo } = require('./services/yahoo');
 const { searchCoupang } = require('./services/coupang');
 const { searchAmazon } = require('./services/amazon');
-const {
-  getMockPchomeChannel,
-  getMockChannelById,
-} = require('./services/mock');
 const { parseKeywords, matchesKeywords } = require('./services/query');
 
 const app = express();
@@ -17,39 +13,34 @@ const PORT = process.env.PORT || 3000;
 
 const CHANNELS = [
   {
-    id: 'pchome',
-    name: 'PChome 24h 購物',
-    sub: 'PChome 24h',
-    search: searchPChome,
-    getMock: getMockPchomeChannel,
-  },
-  {
     id: 'momo',
     name: 'momo 購物網',
     sub: 'momo',
     search: searchMomo,
-    getMock: (query) => getMockChannelById('momo', query),
   },
   {
     id: 'coupang',
     name: '酷澎購物網',
     sub: 'Coupang',
     search: searchCoupang,
-    getMock: (query) => getMockChannelById('coupang', query),
+  },
+  {
+    id: 'pchome',
+    name: 'PChome 24h 購物',
+    sub: 'PChome 24h',
+    search: searchPChome,
   },
   {
     id: 'yahoo',
     name: 'Yahoo 購物中心',
     sub: 'Yahoo 購物中心',
     search: searchYahoo,
-    getMock: (query) => getMockChannelById('yahoo', query),
   },
   {
     id: 'amazon',
     name: 'amazon.co.jp',
     sub: 'Amazon Japan',
     search: searchAmazon,
-    getMock: (query) => getMockChannelById('amazon', query),
   },
 ];
 
@@ -73,36 +64,39 @@ app.get('/api/health', (_req, res) => {
 });
 
 async function loadChannel(channel, query, keywords) {
-  let source = 'live';
-  let error = null;
-  let items = [];
-
   try {
-    items = (await channel.search(query)).filter((item) =>
+    const items = (await channel.search(query)).filter((item) =>
       matchesKeywords(item.title, keywords)
     );
-  } catch (err) {
-    source = 'mock';
-    error = err.message;
-    items = (channel.getMock(query)?.items || []).filter((item) =>
-      matchesKeywords(item.title, keywords)
-    );
-  }
 
-  return {
-    channel: {
-      id: channel.id,
-      name: channel.name,
-      sub: channel.sub,
-      items,
-      source,
-    },
-    meta: {
-      live: source === 'live',
-      error,
-      itemCount: items.length,
-    },
-  };
+    if (!items.length) {
+      return null;
+    }
+
+    return {
+      channel: {
+        id: channel.id,
+        name: channel.name,
+        sub: channel.sub,
+        items,
+        source: 'live',
+      },
+      meta: {
+        live: true,
+        error: null,
+        itemCount: items.length,
+      },
+    };
+  } catch (err) {
+    return {
+      channel: null,
+      meta: {
+        live: false,
+        error: err.message,
+        itemCount: 0,
+      },
+    };
+  }
 }
 
 app.get('/api/products', async (req, res) => {
@@ -117,13 +111,12 @@ app.get('/api/products', async (req, res) => {
     CHANNELS.map((channel) => loadChannel(channel, query, keywords))
   );
 
-  const channels = results
-    .map((result) => result.channel)
-    .filter((channel) => channel.items.length > 0);
+  const successful = results.filter((result) => result.channel);
+  const channels = successful.map((result) => result.channel);
 
   const liveStatus = Object.fromEntries(
-    results.map((result) => [
-      result.channel.id,
+    results.map((result, index) => [
+      CHANNELS[index].id,
       {
         live: result.meta.live,
         error: result.meta.error,
@@ -139,8 +132,7 @@ app.get('/api/products', async (req, res) => {
       keywords,
       liveStatus,
       totalItems: channels.reduce((sum, channel) => sum + channel.items.length, 0),
-      liveChannels: results.filter((result) => result.meta.live).map((result) => result.channel.id),
-      // 保留舊欄位，避免前端尚未更新時出錯
+      liveChannels: successful.map((result) => result.channel.id),
       pchomeLive: liveStatus.pchome?.live ?? false,
       pchomeError: liveStatus.pchome?.error ?? null,
     },
