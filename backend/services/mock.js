@@ -92,10 +92,12 @@ const MOCK_CHANNELS = [
   },
 ];
 
+const { parseKeywords, matchesKeywords } = require('./query');
+
 function filterItems(items, query) {
-  const q = query.trim().toLowerCase();
-  if (!q) return items;
-  return items.filter((item) => item.title.toLowerCase().includes(q));
+  const keywords = parseKeywords(query);
+  if (!keywords.length) return items;
+  return items.filter((item) => matchesKeywords(item.title, keywords));
 }
 
 function getMockChannels(query) {
@@ -108,6 +110,8 @@ function getMockChannels(query) {
 }
 
 function getMockPchomeChannel(query) {
+  const keywords = parseKeywords(query);
+
   return {
     id: 'pchome',
     name: 'PChome 24h 購物',
@@ -134,7 +138,7 @@ function getMockPchomeChannel(query) {
         points: 'P幣回饋 1%',
         score: 83,
       },
-    ].filter((item) => !q || item.title.toLowerCase().includes(q)),
+    ].filter((item) => matchesKeywords(item.title, keywords)),
   };
 }
 

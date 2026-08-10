@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const { searchPChome } = require('./services/pchome');
 const { getMockChannels, getMockPchomeChannel } = require('./services/mock');
+const { parseKeywords, matchesKeywords } = require('./services/query');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -37,8 +38,12 @@ app.get('/api/products', async (req, res) => {
   let pchomeLive = false;
   let pchomeError = null;
 
+  const keywords = parseKeywords(query);
+
   try {
-    const items = await searchPChome(query);
+    const items = (await searchPChome(query)).filter((item) =>
+      matchesKeywords(item.title, keywords)
+    );
     pchomeChannel = {
       id: 'pchome',
       name: 'PChome 24h 購物',
@@ -70,6 +75,7 @@ app.get('/api/products', async (req, res) => {
     meta: {
       pchomeLive,
       pchomeError,
+      keywords,
       totalItems: channels.reduce((sum, channel) => sum + channel.items.length, 0),
     },
   });
