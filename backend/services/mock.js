@@ -109,6 +109,16 @@ function getMockChannels(query) {
   })).filter((channel) => !q || channel.items.length > 0);
 }
 
+function getMockChannelById(channelId, query) {
+  const channel = MOCK_CHANNELS.find((entry) => entry.id === channelId);
+  if (!channel) return null;
+
+  return {
+    ...channel,
+    items: filterItems(channel.items, query),
+  };
+}
+
 function getMockPchomeChannel(query) {
   const keywords = parseKeywords(query);
 
@@ -142,4 +152,4 @@ function getMockPchomeChannel(query) {
   };
 }
 
-module.exports = { getMockChannels, getMockPchomeChannel };
+module.exports = { getMockChannels, getMockPchomeChannel, getMockChannelById };
