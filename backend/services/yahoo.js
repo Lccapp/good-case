@@ -3,16 +3,33 @@ const { createClient, parsePrice, buildScore, extractScriptJson } = require('./h
 const SEARCH_URL = 'https://tw.buy.yahoo.com/search/product';
 const client = createClient();
 
+function isYahooExpress(hit) {
+  if (
+    Array.isArray(hit.ec_options) &&
+    hit.ec_options.some((opt) => opt.item === 'is_express')
+  ) {
+    return true;
+  }
+
+  if (String(hit.ec_is_express || hit.is_express || '').toLowerCase() === 'true') {
+    return true;
+  }
+
+  return false;
+}
+
 function buildDeal(hit) {
+  if (isYahooExpress(hit)) {
+    return '快速到貨';
+  }
+
   const listPrice = parsePrice(hit.ec_listprice);
   const price = parsePrice(hit.ec_price || hit.promo_price);
   if (listPrice > price) {
     return `原價 $${listPrice.toLocaleString()}・現省 $${(listPrice - price).toLocaleString()}`;
   }
-  if (Array.isArray(hit.ec_options) && hit.ec_options.some((opt) => opt.item === 'is_express')) {
-    return '快速到貨';
-  }
-  return 'Yahoo 購物中心';
+
+  return '—';
 }
 
 function normalizeHit(hit, index) {

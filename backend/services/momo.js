@@ -84,6 +84,10 @@ function buildMomoDeal(product) {
 }
 
 function isMomoFastDelivery(product) {
+  if (String(product.isSpeedArrive || '').toLowerCase() === 'true') {
+    return true;
+  }
+
   const icons = product.icon || [];
   if (
     icons.some((icon) =>
