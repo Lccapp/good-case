@@ -70,7 +70,14 @@ async function loadChannel(channel, query, keywords) {
     );
 
     if (!items.length) {
-      return null;
+      return {
+        channel: null,
+        meta: {
+          live: false,
+          error: '無符合條件的商品',
+          itemCount: 0,
+        },
+      };
     }
 
     return {
@@ -106,37 +113,42 @@ app.get('/api/products', async (req, res) => {
     return res.status(400).json({ error: '請提供 q 搜尋關鍵字' });
   }
 
-  const keywords = parseKeywords(query);
-  const results = await Promise.all(
-    CHANNELS.map((channel) => loadChannel(channel, query, keywords))
-  );
+  try {
+    const keywords = parseKeywords(query);
+    const results = await Promise.all(
+      CHANNELS.map((channel) => loadChannel(channel, query, keywords))
+    );
 
-  const successful = results.filter((result) => result.channel);
-  const channels = successful.map((result) => result.channel);
+    const successful = results.filter((result) => result.channel);
+    const channels = successful.map((result) => result.channel);
 
-  const liveStatus = Object.fromEntries(
-    results.map((result, index) => [
-      CHANNELS[index].id,
-      {
-        live: result.meta.live,
-        error: result.meta.error,
-        itemCount: result.meta.itemCount,
+    const liveStatus = Object.fromEntries(
+      results.map((result, index) => [
+        CHANNELS[index].id,
+        {
+          live: result.meta.live,
+          error: result.meta.error,
+          itemCount: result.meta.itemCount,
+        },
+      ])
+    );
+
+    res.json({
+      query,
+      channels,
+      meta: {
+        keywords,
+        liveStatus,
+        totalItems: channels.reduce((sum, channel) => sum + channel.items.length, 0),
+        liveChannels: successful.map((result) => result.channel.id),
+        pchomeLive: liveStatus.pchome?.live ?? false,
+        pchomeError: liveStatus.pchome?.error ?? null,
       },
-    ])
-  );
-
-  res.json({
-    query,
-    channels,
-    meta: {
-      keywords,
-      liveStatus,
-      totalItems: channels.reduce((sum, channel) => sum + channel.items.length, 0),
-      liveChannels: successful.map((result) => result.channel.id),
-      pchomeLive: liveStatus.pchome?.live ?? false,
-      pchomeError: liveStatus.pchome?.error ?? null,
-    },
-  });
+    });
+  } catch (err) {
+    console.error('GET /api/products failed:', err);
+    res.status(500).json({ error: '比價查詢失敗，請稍後再試' });
+  }
 });
 
 app.listen(PORT, () => {
