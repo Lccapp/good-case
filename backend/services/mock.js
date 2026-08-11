@@ -92,10 +92,10 @@ const MOCK_CHANNELS = [
   },
 ];
 
-const { parseKeywords, matchesKeywords } = require('./query');
+const { significantKeywords, matchesKeywords } = require('./query');
 
 function filterItems(items, query) {
-  const keywords = parseKeywords(query);
+  const keywords = significantKeywords(query);
   if (!keywords.length) return items;
   return items.filter((item) => matchesKeywords(item.title, keywords));
 }

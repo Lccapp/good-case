@@ -6,7 +6,7 @@ const { searchMomo } = require('./services/momo');
 const { searchYahoo } = require('./services/yahoo');
 const { searchCoupang } = require('./services/coupang');
 const { searchAmazon } = require('./services/amazon');
-const { parseKeywords, matchesKeywords } = require('./services/query');
+const { significantKeywords, matchesKeywords } = require('./services/query');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -114,7 +114,7 @@ app.get('/api/products', async (req, res) => {
   }
 
   try {
-    const keywords = parseKeywords(query);
+    const keywords = significantKeywords(query);
     const results = await Promise.all(
       CHANNELS.map((channel) => loadChannel(channel, query, keywords))
     );
