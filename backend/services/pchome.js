@@ -14,19 +14,19 @@ const client = axios.create({
 });
 
 function buildDeal(prod) {
-  const origin = prod.originPrice || prod.price;
+  const origin = prod.originPrice || prod.price || 0;
   const current = prod.price || 0;
+  const savings = origin - current;
 
-  if (origin > current) {
-    return `現省 $${(origin - current).toLocaleString()}`;
+  if (savings > 0) {
+    return `最高折${savings.toLocaleString()}`;
   }
 
-  const couponCount = prod.couponActid?.length || 0;
-  if (couponCount > 0) {
-    return couponCount > 1 ? `可用折價券 ${couponCount} 組` : '可用折價券';
+  if (prod.couponActid?.length) {
+    return '可用折價券';
   }
 
-  return '—';
+  return `原價$${origin.toLocaleString()}`;
 }
 
 function buildScore(prod, index) {
