@@ -25,7 +25,7 @@ function buildDeal(prod) {
     return `可用折價券 ${prod.couponActid.length} 組`;
   }
 
-  return '24h 快速到貨';
+  return '—';
 }
 
 function buildScore(prod, index) {
@@ -42,6 +42,7 @@ function normalizeProduct(prod, index) {
     url: `${PRODUCT_BASE}/${prod.Id}`,
     image: prod.picS ? `${IMAGE_BASE}${prod.picS}` : '',
     deal: buildDeal(prod),
+    fastDelivery: true,
     points: prod.couponActid?.length ? 'PChome 折價券活動' : 'P幣回饋依卡別',
     score: buildScore(prod, index),
   };

@@ -19,10 +19,6 @@ function isYahooExpress(hit) {
 }
 
 function buildDeal(hit) {
-  if (isYahooExpress(hit)) {
-    return '快速到貨';
-  }
-
   const listPrice = parsePrice(hit.ec_listprice);
   const price = parsePrice(hit.ec_price || hit.promo_price);
   if (listPrice > price) {
@@ -42,6 +38,7 @@ function normalizeHit(hit, index) {
     url: hit.ec_item_url || '',
     image: hit.ec_image || '',
     deal: buildDeal(hit),
+    fastDelivery: isYahooExpress(hit),
     points: hit.ec_brand ? `${hit.ec_brand} 官方/授權` : '購物金回饋依活動',
     score: buildScore(price, index, 90),
   };
