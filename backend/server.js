@@ -65,9 +65,13 @@ app.get('/api/health', (_req, res) => {
 
 async function loadChannel(channel, query, keywords) {
   try {
-    const items = (await channel.search(query)).filter((item) =>
-      matchesKeywords(item.title, keywords)
-    );
+    const rawItems = await channel.search(query);
+    const items =
+      channel.id === 'pchome'
+        ? rawItems
+        : rawItems.filter((item) =>
+            matchesKeywords(item.matchText || item.title, keywords)
+          );
 
     if (!items.length) {
       return {

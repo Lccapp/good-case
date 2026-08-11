@@ -34,11 +34,25 @@ function buildScore(prod, index) {
   return Math.max(60, Math.min(99, priceScore - index));
 }
 
+function buildTitle(prod) {
+  const name = (prod.name || '').replace(/\\r\\n/g, ' ').trim();
+  const describe = (prod.describe || '').replace(/\\r\\n/g, ' ').trim();
+  const brandMatch = describe.match(/【([^】]+)】/);
+
+  if (brandMatch && !name.includes(brandMatch[1])) {
+    return `${brandMatch[1]} ${name}`;
+  }
+
+  return name || describe;
+}
+
 function normalizeProduct(prod, index) {
-  const title = (prod.name || '').replace(/\\r\\n/g, ' ').trim();
+  const title = buildTitle(prod);
+  const matchText = `${prod.name || ''} ${prod.describe || ''}`.replace(/\\r\\n/g, ' ').trim();
 
   return {
     title,
+    matchText,
     price: prod.price || 0,
     url: `${PRODUCT_BASE}/${prod.Id}`,
     image: prod.picS ? `${IMAGE_BASE}${prod.picS}` : '',
