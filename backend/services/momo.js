@@ -116,10 +116,6 @@ function isMomoShoppingProduct(product) {
 }
 
 function buildMomoDeal(product) {
-  if (isMomoFastDelivery(product)) {
-    return '快速到貨';
-  }
-
   const promo = (product.goodsSubName || product.description || '').trim();
   return promo || '—';
 }
@@ -180,6 +176,7 @@ function normalizeGoodsInfo(product, index, query) {
     url,
     image: product.imgUrl || product.image || '',
     deal: buildMomoDeal(product),
+    fastDelivery: isMomoFastDelivery(product),
     points: 'mo幣回饋依活動',
     score: buildScore(price, index, 88),
   };
