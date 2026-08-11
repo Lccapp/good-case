@@ -133,12 +133,29 @@ app.get('/api/products', async (req, res) => {
       ])
     );
 
+    const channelResults = CHANNELS.map((channel, index) => {
+      const result = results[index];
+      if (result.channel) {
+        return { ...result.channel, state: 'ok' };
+      }
+
+      return {
+        id: channel.id,
+        name: channel.name,
+        sub: channel.sub,
+        items: [],
+        state:
+          result.meta.error === '無符合條件的商品' ? 'empty' : 'failed',
+      };
+    });
+
     res.json({
       query,
       channels,
       meta: {
         keywords,
         liveStatus,
+        channelResults,
         totalItems: channels.reduce((sum, channel) => sum + channel.items.length, 0),
         liveChannels: successful.map((result) => result.channel.id),
         pchomeLive: liveStatus.pchome?.live ?? false,

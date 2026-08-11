@@ -74,6 +74,42 @@ function isMomoShoppingProduct(product) {
   return true;
 }
 
+function buildMomoDeal(product) {
+  if (isMomoFastDelivery(product)) {
+    return '快速到貨';
+  }
+
+  const promo = (product.goodsSubName || product.description || '').trim();
+  return promo || '—';
+}
+
+function isMomoFastDelivery(product) {
+  const icons = product.icon || [];
+  if (
+    icons.some((icon) =>
+      /快速到貨|速達|3小時|三小時|隔日/i.test(
+        String(icon.iconContent || icon.iconType || '')
+      )
+    )
+  ) {
+    return true;
+  }
+
+  const fastFlags = [
+    product.threeHoursYn,
+    product.threeHourYn,
+    product.isThreeHours,
+    product.fastDeliveryYn,
+    product.tomorrowYn,
+  ];
+  if (fastFlags.some((flag) => String(flag || '').toUpperCase() === 'Y')) {
+    return true;
+  }
+
+  const tagBlob = JSON.stringify(product.goodsTag || product.tagInfo || []);
+  return /快速到貨|速達|3小時|三小時/i.test(tagBlob);
+}
+
 function normalizeGoodsInfo(product, index, query) {
   const title = (product.goodsName || product.name || '').trim();
   const goodsCode = product.goodsCode || '';
@@ -95,7 +131,7 @@ function normalizeGoodsInfo(product, index, query) {
     price,
     url,
     image: product.imgUrl || product.image || '',
-    deal: (product.goodsSubName || product.description || 'momo 購物網').trim(),
+    deal: buildMomoDeal(product),
     points: 'mo幣回饋依活動',
     score: buildScore(price, index, 88),
   };
