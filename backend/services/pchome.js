@@ -18,11 +18,12 @@ function buildDeal(prod) {
   const current = prod.price || 0;
 
   if (origin > current) {
-    return `原價 $${origin.toLocaleString()}・現省 $${(origin - current).toLocaleString()}`;
+    return `現省 $${(origin - current).toLocaleString()}`;
   }
 
-  if (prod.couponActid?.length) {
-    return `可用折價券 ${prod.couponActid.length} 組`;
+  const couponCount = prod.couponActid?.length || 0;
+  if (couponCount > 0) {
+    return couponCount > 1 ? `可用折價券 ${couponCount} 組` : '可用折價券';
   }
 
   return '—';
