@@ -77,13 +77,13 @@ async function fetchArrivalMap(ids) {
   const entries = await Promise.all(
     uniqueIds.map(async (id) => {
       try {
-        const response = await client.get(`${PROD_URL}/${id}`, {
-          params: {
-            fields: 'Id,isArrival24h',
-            _callback: 'jsonp_prod',
-          },
-          transformResponse: [(data) => data],
-        });
+        const response = await client.get(
+          `${PROD_URL}/${id}&fields=Id,isArrival24h&_callback=jsonp_prod`,
+          {
+            responseType: 'text',
+            transformResponse: [(data) => data],
+          }
+        );
 
         const parsed = parseJsonpProd(response.data);
         const entry = parsed[`${id}-000`] || Object.values(parsed)[0];
@@ -167,10 +167,6 @@ function isPchomeAvailable(prod, buttons) {
 }
 
 function isPchomeFastDelivery(prod, arrivalMap) {
-  if (prod.isPChome !== 1) {
-    return false;
-  }
-
   return arrivalMap.get(prod.Id) === true;
 }
 
