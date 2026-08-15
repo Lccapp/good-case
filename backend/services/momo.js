@@ -4,6 +4,7 @@ const SEARCH_URL = 'https://www.momoshop.com.tw/search';
 const API_URL = 'https://apisearch.momoshop.com.tw/momoSearchCloud/moec/textSearch';
 const PRODUCT_BASE =
   'https://www.momoshop.com.tw/goods/GoodsDetail.jsp?i_code=';
+const DEFAULT_LIMIT = 30;
 
 const client = createClient({
   Origin: 'https://www.momoshop.com.tw',
@@ -48,9 +49,55 @@ function buildApiPayload(query) {
   };
 }
 
-const SOLD_OUT_PATTERN = /熱銷一空|已售完|售完|缺貨中|補貨中|暫時缺貨|sold\s*out/i;
+const SOLD_OUT_PATTERN =
+  /熱銷一空|已賣完|已售完|售完|缺貨中|補貨中|暫時缺貨|sold\s*out/i;
+
+function collectProductText(product) {
+  const icons = (product.icon || [])
+    .map(
+      (icon) =>
+        `${icon.iconContent || ''}${icon.iconType || ''}${icon.iconContentType || ''}`
+    )
+    .join(' ');
+
+  return [
+    product.goodsName,
+    product.goodsSubName,
+    product.goodsPrice,
+    product.goodsPriceOri,
+    product.goodsStatus,
+    product.onSaleDescription,
+    product.goodsPriceModel?.basePrice?.goodsStatus,
+    product.goodsPriceModel?.marketPrice?.goodsStatus,
+    icons,
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function getMomoSalePrice(product) {
+  return parsePrice(
+    product.goodsPriceModel?.basePrice?.price ||
+      product.goodsPrice ||
+      product.offers?.price ||
+      product.price
+  );
+}
+
+function getMomoMarketPrice(product) {
+  return parsePrice(
+    product.marketPriceModel?.basePrice?.price ||
+      product.goodsPriceModel?.marketPrice?.price ||
+      product.goodsPriceOri
+  );
+}
 
 function isMomoSoldOut(product) {
+  const blob = collectProductText(product);
+  if (SOLD_OUT_PATTERN.test(blob)) {
+    return true;
+  }
+
   const stock = product.goodsStock;
   if (stock !== undefined && stock !== null && stock !== '') {
     const stockNum = Number(String(stock).replace(/,/g, ''));
@@ -59,30 +106,7 @@ function isMomoSoldOut(product) {
     }
   }
 
-  const statusFields = [
-    product.goodsPriceModel?.basePrice?.goodsStatus,
-    product.goodsPriceModel?.marketPrice?.goodsStatus,
-    product.goodsStatus,
-  ];
-  if (statusFields.some((status) => SOLD_OUT_PATTERN.test(String(status || '')))) {
-    return true;
-  }
-
-  const textFields = [product.goodsPrice, product.goodsSubName, product.goodsName];
-  if (textFields.some((text) => SOLD_OUT_PATTERN.test(String(text || '')))) {
-    return true;
-  }
-
-  const icons = product.icon || [];
-  if (
-    icons.some((icon) =>
-      SOLD_OUT_PATTERN.test(String(icon.iconContent || icon.iconType || ''))
-    )
-  ) {
-    return true;
-  }
-
-  return false;
+  return getMomoSalePrice(product) <= 0;
 }
 
 function isMomoAvailable(product) {
@@ -90,7 +114,10 @@ function isMomoAvailable(product) {
 }
 
 function isMomoShoppingProduct(product) {
-  const url = String(product.url || product.ecUrl || '').toLowerCase();
+  const url = String(
+    product.url || product.goodsUrl || product.ecUrl || ''
+  ).toLowerCase();
+
   if (/entp|mo店|momo商店|\/store\//i.test(url)) {
     return false;
   }
@@ -115,9 +142,98 @@ function isMomoShoppingProduct(product) {
   return true;
 }
 
+function hasMomoCoupon(product) {
+  const icons = product.icon || [];
+  if (
+    icons.some(
+      (icon) =>
+        icon.iconContentType === 'isCp' ||
+        /折價券|coupon/i.test(String(icon.iconContent || icon.iconType || ''))
+    )
+  ) {
+    return true;
+  }
+
+  return /折價券/.test(collectProductText(product));
+}
+
+function detectMomoRegisterType(product) {
+  for (const icon of product.icon || []) {
+    if (icon.iconContentType !== 'isRegister') {
+      continue;
+    }
+
+    const text = String(icon.iconContent || '');
+    if (/登記抽|登记抽/.test(text) || (/登記/.test(text) && /抽/.test(text))) {
+      return '登記抽';
+    }
+    if (/登記送|登记送/.test(text) || (/登記/.test(text) && /送/.test(text))) {
+      return '登記送';
+    }
+  }
+
+  const blob = collectProductText(product);
+  if (/登記抽/.test(blob)) {
+    return '登記抽';
+  }
+  if (/登記送/.test(blob)) {
+    return '登記送';
+  }
+
+  if (
+    (product.icon || []).some((icon) => icon.iconContentType === 'isRegister')
+  ) {
+    return '登記送';
+  }
+
+  return null;
+}
+
+function hasMomoGift(product) {
+  const icons = product.icon || [];
+  if (
+    icons.some(
+      (icon) =>
+        icon.iconContentType === 'isGift' ||
+        /贈品|gift/i.test(String(icon.iconContent || icon.iconType || ''))
+    )
+  ) {
+    return true;
+  }
+
+  return /贈品/.test(collectProductText(product));
+}
+
+function hasMomoPriceReduction(product) {
+  const salePrice = getMomoSalePrice(product);
+  const marketPrice = getMomoMarketPrice(product);
+  return marketPrice > salePrice && marketPrice > 0 && salePrice > 0;
+}
+
 function buildMomoDeal(product) {
-  const promo = (product.goodsSubName || product.description || '').trim();
-  return promo || '—';
+  const registerType = detectMomoRegisterType(product);
+
+  if (hasMomoCoupon(product)) {
+    return '可用折價券';
+  }
+
+  if (registerType === '登記送') {
+    return '登記送';
+  }
+
+  if (registerType === '登記抽') {
+    return '登記抽';
+  }
+
+  if (hasMomoGift(product)) {
+    return '贈品';
+  }
+
+  if (hasMomoPriceReduction(product)) {
+    return '售價已折';
+  }
+
+  return '到momo購物網查看';
 }
 
 function isMomoFastDelivery(product) {
@@ -154,32 +270,40 @@ function isMomoFastDelivery(product) {
   return /快速到貨|速達|3小時|三小時/i.test(tagBlob);
 }
 
-function normalizeGoodsInfo(product, index, query) {
-  const title = (product.goodsName || product.name || '').trim();
+function buildProductUrl(product, query) {
   const goodsCode = product.goodsCode || '';
-  const price = parsePrice(
-    product.goodsPriceModel?.basePrice?.price ||
-      product.goodsPrice ||
-      product.offers?.price ||
-      product.price
-  );
-
-  const url =
+  return (
     product.url ||
+    product.goodsUrl ||
     (goodsCode
       ? `${PRODUCT_BASE}${goodsCode}&Area=search&mdiv=403&kw=${encodeURIComponent(query)}`
-      : '');
+      : '')
+  );
+}
+
+function normalizeGoodsInfo(product, index, query) {
+  const title = (product.goodsName || product.name || '').trim();
+  const price = getMomoSalePrice(product);
+  const url = buildProductUrl(product, query);
+  const matchText = collectProductText(product);
 
   return {
     title,
+    matchText,
     price,
     url,
     image: product.imgUrl || product.image || '',
     deal: buildMomoDeal(product),
-    fastDelivery: isMomoFastDelivery(product),
+    fastDelivery: Boolean(isMomoFastDelivery(product)),
     points: 'mo幣回饋依活動',
     score: buildScore(price, index, 88),
   };
+}
+
+function filterMomoProducts(products) {
+  return products.filter(
+    (product) => isMomoShoppingProduct(product) && isMomoAvailable(product)
+  );
 }
 
 function extractGoodsInfoList(html) {
@@ -221,8 +345,8 @@ async function searchMomoApi(query, limit) {
     throw new Error(`momo API 回應 ${response.status}`);
   }
 
-  const products = (response.data?.rtnSearchData?.goodsInfoList || []).filter(
-    (product) => isMomoShoppingProduct(product) && isMomoAvailable(product)
+  const products = filterMomoProducts(
+    response.data?.rtnSearchData?.goodsInfoList || []
   );
 
   if (!products.length) {
@@ -238,9 +362,7 @@ async function searchMomoHtml(query, limit) {
   const response = await client.get(`${SEARCH_URL}/${encodeURIComponent(query)}`);
   const html = response.data;
 
-  const goodsList = extractGoodsInfoList(html).filter(
-    (product) => isMomoShoppingProduct(product) && isMomoAvailable(product)
-  );
+  const goodsList = filterMomoProducts(extractGoodsInfoList(html));
   if (goodsList.length) {
     return goodsList.slice(0, limit).map((product, index) =>
       normalizeGoodsInfo(product, index, query)
@@ -248,24 +370,25 @@ async function searchMomoHtml(query, limit) {
   }
 
   const itemList = extractJsonLd(html, 'ItemList');
-  const products = (itemList?.itemListElement || [])
-    .map((entry) => entry.item || entry)
-    .filter(
-      (item) =>
-        item &&
-        item['@type'] === 'Product' &&
-        isMomoShoppingProduct({
-          url: item.url,
-          name: item.name,
-          setGoodsYn: '0',
-        }) &&
-        isMomoAvailable({
-          url: item.url,
-          name: item.name,
-          goodsPrice: item.offers?.price,
-        }) &&
-        String(item.url || '').includes('mdiv=403')
-    );
+  const products = filterMomoProducts(
+    (itemList?.itemListElement || [])
+      .map((entry) => entry.item || entry)
+      .filter(
+        (item) =>
+          item &&
+          item['@type'] === 'Product' &&
+          String(item.url || '').includes('mdiv=403')
+      )
+      .map((item) => ({
+        goodsName: item.name,
+        goodsCode: String(item.url || '').match(/i_code=(\d+)/)?.[1] || '',
+        goodsUrl: item.url,
+        goodsPrice: item.offers?.price,
+        imgUrl: item.image,
+        setGoodsYn: '0',
+        icon: [],
+      }))
+  );
 
   if (!products.length) {
     throw new Error('無法解析 momo 搜尋結果');
@@ -276,17 +399,30 @@ async function searchMomoHtml(query, limit) {
   );
 }
 
-async function searchMomo(query, limit = 12) {
+async function searchMomo(query, limit = DEFAULT_LIMIT) {
+  let htmlResults = [];
+  let apiResults = [];
+
   try {
-    const htmlResults = await searchMomoHtml(query, limit);
-    if (htmlResults.length) {
-      return htmlResults;
-    }
+    htmlResults = await searchMomoHtml(query, limit);
   } catch {
     // fall through to API
   }
 
-  return searchMomoApi(query, limit);
+  try {
+    apiResults = await searchMomoApi(query, limit);
+  } catch {
+    // ignore API failure when HTML succeeded
+  }
+
+  const best =
+    htmlResults.length >= apiResults.length ? htmlResults : apiResults;
+
+  if (!best.length) {
+    throw new Error('無法取得 momo 搜尋結果');
+  }
+
+  return best;
 }
 
 module.exports = { searchMomo };

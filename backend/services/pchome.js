@@ -1,4 +1,5 @@
 const axios = require('axios');
+const https = require('https');
 
 const SEARCH_URL = 'https://ecshweb.pchome.com.tw/search/v3.3/all/results';
 const BUTTON_URL = 'https://ecapi.pchome.com.tw/ecshop/prodapi/v2/prod/button';
@@ -68,6 +69,43 @@ async function fetchButtonGroups(ids) {
   }
 }
 
+function fetchProdArrival(id) {
+  const url = `${PROD_URL}/${id}&fields=Id,isArrival24h&_callback=jsonp_prod`;
+
+  return new Promise((resolve) => {
+    const request = https.get(
+      url,
+      {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          Accept: '*/*',
+          Referer: 'https://24h.pchome.com.tw/',
+        },
+        timeout: 10000,
+      },
+      (response) => {
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+          body += chunk;
+        });
+        response.on('end', () => {
+          const parsed = parseJsonpProd(body);
+          const entry = parsed[`${id}-000`] || Object.values(parsed)[0];
+          resolve(entry?.isArrival24h === 1);
+        });
+      }
+    );
+
+    request.on('timeout', () => {
+      request.destroy();
+      resolve(false);
+    });
+    request.on('error', () => resolve(false));
+  });
+}
+
 async function fetchArrivalMap(ids) {
   const uniqueIds = [...new Set(ids.filter(Boolean))];
   if (!uniqueIds.length) {
@@ -75,23 +113,7 @@ async function fetchArrivalMap(ids) {
   }
 
   const entries = await Promise.all(
-    uniqueIds.map(async (id) => {
-      try {
-        const response = await client.get(
-          `${PROD_URL}/${id}&fields=Id,isArrival24h&_callback=jsonp_prod`,
-          {
-            responseType: 'text',
-            transformResponse: [(data) => data],
-          }
-        );
-
-        const parsed = parseJsonpProd(response.data);
-        const entry = parsed[`${id}-000`] || Object.values(parsed)[0];
-        return [id, entry?.isArrival24h === 1];
-      } catch {
-        return [id, false];
-      }
-    })
+    uniqueIds.map(async (id) => [id, await fetchProdArrival(id)])
   );
 
   return new Map(entries);
@@ -269,7 +291,7 @@ function normalizeProduct(prod, index, button, actLabels, arrivalMap) {
     url: `${PRODUCT_BASE}/${prod.Id}`,
     image: prod.picS ? `${IMAGE_BASE}${prod.picS}` : '',
     deal: buildDeal(prod, button, actLabels),
-    fastDelivery: isPchomeFastDelivery(prod, arrivalMap),
+    fastDelivery: Boolean(isPchomeFastDelivery(prod, arrivalMap)),
     points: prod.couponActid?.length ? 'PChome 折價券活動' : 'P幣回饋依卡別',
     score: buildScore({ ...prod, price: salePrice }, index),
   };

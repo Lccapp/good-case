@@ -67,7 +67,7 @@ async function loadChannel(channel, query, keywords) {
   try {
     const rawItems = await channel.search(query);
     const items =
-      channel.id === 'pchome'
+      channel.id === 'pchome' || channel.id === 'momo'
         ? rawItems
         : rawItems.filter((item) =>
             matchesKeywords(item.matchText || item.title, keywords)
