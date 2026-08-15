@@ -36,6 +36,20 @@ function parseJsonpProd(text) {
   }
 }
 
+function isArrival24hValue(value) {
+  return value === 1 || value === true || String(value) === '1';
+}
+
+function parseArrivalFlag(body) {
+  const parsed = parseJsonpProd(body);
+  const entry = Object.values(parsed)[0];
+  if (isArrival24hValue(entry?.isArrival24h)) {
+    return true;
+  }
+
+  return /"isArrival24h"\s*:\s*"?1"?/.test(String(body || ''));
+}
+
 async function fetchButtonGroups(ids) {
   const uniqueIds = [...new Set(ids.filter(Boolean))];
   if (!uniqueIds.length) {
@@ -69,19 +83,23 @@ async function fetchButtonGroups(ids) {
   }
 }
 
-function fetchProdArrival(id) {
-  const url = `${PROD_URL}/${id}&fields=Id,isArrival24h&_callback=jsonp_prod`;
+const PROD_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  Accept: '*/*',
+  Referer: 'https://24h.pchome.com.tw/',
+};
+
+function fetchProdArrivalViaHttps(id) {
+  const path = `/ecshop/prodapi/v2/prod/${id}&fields=Id,isArrival24h&_callback=jsonp_prod`;
 
   return new Promise((resolve) => {
-    const request = https.get(
-      url,
+    const request = https.request(
       {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          Accept: '*/*',
-          Referer: 'https://24h.pchome.com.tw/',
-        },
+        hostname: 'ecapi.pchome.com.tw',
+        path,
+        method: 'GET',
+        headers: PROD_HEADERS,
         timeout: 10000,
       },
       (response) => {
@@ -90,11 +108,7 @@ function fetchProdArrival(id) {
         response.on('data', (chunk) => {
           body += chunk;
         });
-        response.on('end', () => {
-          const parsed = parseJsonpProd(body);
-          const entry = parsed[`${id}-000`] || Object.values(parsed)[0];
-          resolve(entry?.isArrival24h === 1);
-        });
+        response.on('end', () => resolve(parseArrivalFlag(body)));
       }
     );
 
@@ -103,7 +117,29 @@ function fetchProdArrival(id) {
       resolve(false);
     });
     request.on('error', () => resolve(false));
+    request.end();
   });
+}
+
+async function fetchProdArrival(id) {
+  try {
+    const response = await client.get(
+      `${PROD_URL}/${id}&fields=Id,isArrival24h&_callback=jsonp_prod`,
+      {
+        responseType: 'text',
+        transformResponse: [(data) => data],
+        timeout: 10000,
+      }
+    );
+
+    if (parseArrivalFlag(response.data)) {
+      return true;
+    }
+  } catch {
+    // fall through to native HTTPS
+  }
+
+  return fetchProdArrivalViaHttps(id);
 }
 
 async function fetchArrivalMap(ids) {
@@ -208,15 +244,15 @@ function hasActKeyword(prod, actLabels, keyword) {
   return false;
 }
 
-function detectRegistrationFromText(prod) {
-  const text = `${prod.name || ''} ${prod.describe || ''}`;
-  if (text.includes('登記送')) {
-    return '登記送';
-  }
-  if (text.includes('登記抽')) {
-    return '登記抽';
-  }
-  return null;
+function collectPchomeText(prod, actLabels) {
+  const acts = (prod.couponActid || [])
+    .map((actId) => {
+      const act = actLabels.get(actId);
+      return `${act?.name || ''}${act?.type || ''}`;
+    })
+    .join(' ');
+
+  return `${prod.name || ''} ${prod.describe || ''} ${acts}`;
 }
 
 function hasPriceReduction(prod, button) {
@@ -231,31 +267,43 @@ function hasPriceReduction(prod, button) {
 }
 
 function buildDeal(prod, button, actLabels) {
-  const hasCoupon = (prod.couponActid?.length || 0) > 0;
+  const blob = collectPchomeText(prod, actLabels);
+  const hasCoupon =
+    /折價券/.test(blob) ||
+    hasActKeyword(prod, actLabels, '折價券');
+  const hasPCoin =
+    /贈P幣|送P幣/.test(blob) || hasActKeyword(prod, actLabels, '贈P幣');
   const hasRegisterGift =
-    hasActKeyword(prod, actLabels, '登記送') ||
-    detectRegistrationFromText(prod) === '登記送';
+    hasActKeyword(prod, actLabels, '登記送') || blob.includes('登記送');
+  const hasGift = /贈品/.test(blob) || hasActKeyword(prod, actLabels, '贈品');
   const hasRegisterLottery =
-    hasActKeyword(prod, actLabels, '登記抽') ||
-    detectRegistrationFromText(prod) === '登記抽';
+    hasActKeyword(prod, actLabels, '登記抽') || blob.includes('登記抽');
 
-  if (hasCoupon && !hasRegisterGift && !hasRegisterLottery) {
+  if (hasCoupon) {
     return '可用折價券';
   }
 
-  if (hasPriceReduction(prod, button)) {
-    return '售價已折';
+  if (hasPCoin) {
+    return '贈P幣';
   }
 
   if (hasRegisterGift) {
     return '登記送';
   }
 
+  if (hasGift) {
+    return '贈品';
+  }
+
   if (hasRegisterLottery) {
     return '登記抽';
   }
 
-  if (hasCoupon) {
+  if (hasPriceReduction(prod, button)) {
+    return '售價已折';
+  }
+
+  if (prod.couponActid?.length) {
     return '可用折價券';
   }
 

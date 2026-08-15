@@ -135,7 +135,7 @@ function isMomoShoppingProduct(product) {
     return false;
   }
 
-  if (url && !url.includes('momoshop.com.tw/goods/')) {
+  if (url && !url.includes('momoshop.com.tw/goods/') && !product.goodsCode) {
     return false;
   }
 
@@ -239,8 +239,14 @@ function buildMomoDeal(product) {
 function isMomoFastDelivery(product) {
   if (
     product.isSpeedArrive === true ||
-    String(product.isSpeedArrive || '').toLowerCase() === 'true'
+    String(product.isSpeedArrive || '').toLowerCase() === 'true' ||
+    String(product.isSpeedArrive || '') === '1'
   ) {
+    return true;
+  }
+
+  const shopWay = String(product.shopWay || '');
+  if (shopWay.split('##').includes('1')) {
     return true;
   }
 
@@ -306,29 +312,67 @@ function filterMomoProducts(products) {
   );
 }
 
-function extractGoodsInfoList(html) {
-  const marker = '\\"goodsInfoList\\":[';
-  const start = html.indexOf(marker);
-  if (start < 0) {
-    return [];
-  }
-
-  const arrayStart = start + marker.length - 1;
+function parseJsonArrayAt(html, startIndex) {
   let depth = 0;
+  let inString = false;
+  let escaped = false;
 
-  for (let i = arrayStart; i < html.length; i += 1) {
+  for (let i = startIndex; i < html.length; i += 1) {
     const char = html[i];
-    if (char === '[') depth += 1;
-    if (char === ']') {
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === '[') {
+      depth += 1;
+    } else if (char === ']') {
       depth -= 1;
       if (depth === 0) {
-        const raw = html.slice(arrayStart, i + 1);
+        const raw = html.slice(startIndex, i + 1);
         try {
-          return JSON.parse(raw.replace(/\\"/g, '"'));
+          return JSON.parse(raw);
         } catch {
-          return [];
+          try {
+            return JSON.parse(raw.replace(/\\"/g, '"'));
+          } catch {
+            return [];
+          }
         }
       }
+    }
+  }
+
+  return [];
+}
+
+function extractGoodsInfoList(html) {
+  const markers = ['\\"goodsInfoList\\":[', '"goodsInfoList":['];
+
+  for (const marker of markers) {
+    const start = html.indexOf(marker);
+    if (start < 0) {
+      continue;
+    }
+
+    const list = parseJsonArrayAt(html, start + marker.length - 1);
+    if (Array.isArray(list) && list.length) {
+      return list;
     }
   }
 
@@ -358,43 +402,77 @@ async function searchMomoApi(query, limit) {
   );
 }
 
-async function searchMomoHtml(query, limit) {
-  const response = await client.get(`${SEARCH_URL}/${encodeURIComponent(query)}`);
-  const html = response.data;
+function jsonLdToProduct(item) {
+  return {
+    goodsName: item.name,
+    goodsCode: String(item.url || '').match(/i_code=(\d+)/)?.[1] || '',
+    goodsUrl: item.url,
+    goodsPrice: item.offers?.price,
+    imgUrl: item.image,
+    setGoodsYn: '0',
+    icon: [],
+  };
+}
 
-  const goodsList = filterMomoProducts(extractGoodsInfoList(html));
-  if (goodsList.length) {
-    return goodsList.slice(0, limit).map((product, index) =>
-      normalizeGoodsInfo(product, index, query)
-    );
-  }
-
+function extractJsonLdProducts(html) {
   const itemList = extractJsonLd(html, 'ItemList');
-  const products = filterMomoProducts(
-    (itemList?.itemListElement || [])
-      .map((entry) => entry.item || entry)
-      .filter(
-        (item) =>
-          item &&
-          item['@type'] === 'Product' &&
-          String(item.url || '').includes('mdiv=403')
-      )
-      .map((item) => ({
-        goodsName: item.name,
-        goodsCode: String(item.url || '').match(/i_code=(\d+)/)?.[1] || '',
-        goodsUrl: item.url,
-        goodsPrice: item.offers?.price,
-        imgUrl: item.image,
-        setGoodsYn: '0',
-        icon: [],
-      }))
+  return (itemList?.itemListElement || [])
+    .map((entry) => entry.item || entry)
+    .filter((item) => item && item['@type'] === 'Product')
+    .map(jsonLdToProduct)
+    .filter((product) => product.goodsCode);
+}
+
+function mergeMomoProducts(primary, extra) {
+  const map = new Map();
+  for (const product of [...primary, ...extra]) {
+    const key = String(product.goodsCode || product.goodsUrl || product.goodsName);
+    if (!key || map.has(key)) {
+      continue;
+    }
+    map.set(key, product);
+  }
+  return [...map.values()];
+}
+
+async function fetchMomoSearchHtml(query, page = 1) {
+  const response = await client.get(`${SEARCH_URL}/${encodeURIComponent(query)}`, {
+    params: page > 1 ? { curPage: String(page) } : {},
+  });
+  return String(response.data || '');
+}
+
+function maxPageFromHtml(html) {
+  const match = String(html).match(/maxPage\\?":\s*(\\?")?(\d+)/);
+  return Number(match?.[2] || 1);
+}
+
+async function searchMomoHtml(query, limit) {
+  const firstHtml = await fetchMomoSearchHtml(query, 1);
+  let products = mergeMomoProducts(
+    extractGoodsInfoList(firstHtml),
+    extractJsonLdProducts(firstHtml)
   );
 
-  if (!products.length) {
+  const maxPage = Math.min(maxPageFromHtml(firstHtml), 3);
+  for (let page = 2; page <= maxPage && products.length < limit; page += 1) {
+    try {
+      const html = await fetchMomoSearchHtml(query, page);
+      products = mergeMomoProducts(products, [
+        ...extractGoodsInfoList(html),
+        ...extractJsonLdProducts(html),
+      ]);
+    } catch {
+      break;
+    }
+  }
+
+  const available = filterMomoProducts(products);
+  if (!available.length) {
     throw new Error('無法解析 momo 搜尋結果');
   }
 
-  return products.slice(0, limit).map((product, index) =>
+  return available.slice(0, limit).map((product, index) =>
     normalizeGoodsInfo(product, index, query)
   );
 }
